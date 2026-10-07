@@ -6,7 +6,7 @@ from huggingface_hub.utils import RepositoryNotFoundError
 
 
 def state_repo(api):
-    return os.environ.get("STATE_REPO") or f"{api.whoami()['name']}/heoles1-train-state"
+    return os.environ.get("STATE_REPO") or f"{api.whoami()['name']}/yu-ying-1-train-state"
 
 
 def pull(folder):

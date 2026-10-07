@@ -10,8 +10,8 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 TF_MAJOR = int(transformers.__version__.split(".")[0])
 
 
-class HeolesConfig(PretrainedConfig):
-    model_type = "heoles"
+class YuYingConfig(PretrainedConfig):
+    model_type = "yuying"
 
     def __init__(
         self,
@@ -173,8 +173,8 @@ class Block(nn.Module):
         return x
 
 
-class HeolesForCausalLM(PreTrainedModel):
-    config_class = HeolesConfig
+class YuYingForCausalLM(PreTrainedModel):
+    config_class = YuYingConfig
     base_model_prefix = "model"
     _tied_weights_keys = {"lm_head.weight": "embed_tokens.weight"} if TF_MAJOR >= 5 else ["lm_head.weight"]
 

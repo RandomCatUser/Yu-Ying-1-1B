@@ -4,11 +4,11 @@ import tempfile
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from modeling_heoles import HeolesConfig, HeolesForCausalLM
+from modeling_yuying import YuYingConfig, YuYingForCausalLM
 
 
 def small():
-    cfg = HeolesConfig(
+    cfg = YuYingConfig(
         vocab_size=500,
         hidden_size=64,
         intermediate_size=128,
@@ -21,7 +21,7 @@ def small():
         max_position_embeddings=256,
     )
     torch.manual_seed(0)
-    return HeolesForCausalLM(cfg).eval()
+    return YuYingForCausalLM(cfg).eval()
 
 
 def test_cache_matches_full():
@@ -70,14 +70,14 @@ def test_save_and_reload():
     ids = torch.randint(3, 500, (1, 16))
     with tempfile.TemporaryDirectory() as d:
         m.save_pretrained(d)
-        m2 = HeolesForCausalLM.from_pretrained(d).eval()
+        m2 = YuYingForCausalLM.from_pretrained(d).eval()
     assert (m(ids).logits - m2(ids).logits).abs().max().item() < 1e-6
     assert m2.lm_head.weight.data_ptr() == m2.embed_tokens.weight.data_ptr()
 
 
 def test_full_size_is_about_one_billion():
     with torch.device("meta"):
-        big = HeolesForCausalLM(HeolesConfig())
+        big = YuYingForCausalLM(YuYingConfig())
     n = sum(p.numel() for p in big.parameters())
     assert 0.95e9 < n < 1.05e9
 

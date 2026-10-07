@@ -2,10 +2,10 @@ import argparse
 import os
 import torch
 from huggingface_hub import HfApi, login
-from modeling_heoles import HeolesConfig, HeolesForCausalLM
+from modeling_yuying import YuYingConfig, YuYingForCausalLM
 from common import load_tokenizer
 
-DISPLAY_NAME = "Heoles1:1B"
+DISPLAY_NAME = "Yu-Ying 1 : 1B"
 DEVELOPER = "Dihan Ramanayaka"
 
 CARD = """---
@@ -15,15 +15,15 @@ pipeline_tag: text-generation
 language:
 - en
 tags:
-- heoles
+- yuying
 - causal-lm
 - custom_code
 - chat
 ---
 
-# Heoles1:1B
+# Yu-Ying 1 : 1B
 
-Heoles1:1B is a 1 billion parameter decoder-only language model developed by **Dihan Ramanayaka**.
+Yu-Ying 1 : 1B is a 1 billion parameter decoder-only language model developed by **Dihan Ramanayaka**.
 
 ## Architecture
 
@@ -64,8 +64,8 @@ print(tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True))
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default="heoles1-1b-chat")
-    parser.add_argument("--repo", default="Heoles1-1B")
+    parser.add_argument("--dir", default="yu-ying-1-1b-chat")
+    parser.add_argument("--repo", default="Yu-Ying-1-1B")
     parser.add_argument("--username", default=None)
     parser.add_argument("--fp32", action="store_true")
     parser.add_argument("--private", action="store_true")
@@ -79,10 +79,10 @@ def main():
     repo_id = f"{username}/{args.repo}"
     api.create_repo(repo_id=repo_id, repo_type="model", private=args.private, exist_ok=True)
 
-    HeolesConfig.register_for_auto_class()
-    HeolesForCausalLM.register_for_auto_class("AutoModelForCausalLM")
+    YuYingConfig.register_for_auto_class()
+    YuYingForCausalLM.register_for_auto_class("AutoModelForCausalLM")
 
-    model = HeolesForCausalLM.from_pretrained(args.dir)
+    model = YuYingForCausalLM.from_pretrained(args.dir)
     if not args.fp32:
         model = model.to(torch.bfloat16)
     tok = load_tokenizer(args.dir)

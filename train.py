@@ -10,9 +10,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 from common import build_tokenizer, env, load_tokenizer, pick_device, synthetic_texts
-from modeling_heoles import HeolesConfig, HeolesForCausalLM
+from modeling_yuying import YuYingConfig, YuYingForCausalLM
 
-OUT = env("OUT", "heoles1-1b")
+OUT = env("OUT", "yu-ying-1-1b")
 BLOCK = env("BLOCK", 2048)
 MICRO = env("MICRO", 4)
 ACCUM = env("ACCUM", 16)
@@ -50,7 +50,7 @@ SOURCES = [
 
 
 def make_config():
-    return HeolesConfig(vocab_size=VOCAB, **PRESETS.get(PRESET, {}))
+    return YuYingConfig(vocab_size=VOCAB, **PRESETS.get(PRESET, {}))
 
 
 def open_source(repo, config, rank, world, seed):
@@ -155,10 +155,10 @@ def main():
     tok = load_tokenizer(OUT)
 
     torch.manual_seed(SEED)
-    model = HeolesForCausalLM(make_config()).to(device)
+    model = YuYingForCausalLM(make_config()).to(device)
     model.enable_checkpointing(bool(CHECKPOINTING))
     if main_proc:
-        print(f"Heoles1:1B parameters: {sum(p.numel() for p in model.parameters()) / 1e9:.3f}B", flush=True)
+        print(f"Yu-Ying 1 : 1B parameters: {sum(p.numel() for p in model.parameters()) / 1e9:.3f}B", flush=True)
 
     decay = [p for p in model.parameters() if p.dim() >= 2]
     no_decay = [p for p in model.parameters() if p.dim() < 2]

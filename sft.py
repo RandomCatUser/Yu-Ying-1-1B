@@ -5,10 +5,10 @@ import time
 import torch
 from datasets import load_dataset
 from common import encode_conversation, env, load_tokenizer, pick_device, synthetic_conversations
-from modeling_heoles import HeolesForCausalLM
+from modeling_yuying import YuYingForCausalLM
 
-BASE = env("BASE", "heoles1-1b")
-OUT = env("SFT_OUT", "heoles1-1b-chat")
+BASE = env("BASE", "yu-ying-1-1b")
+OUT = env("SFT_OUT", "yu-ying-1-1b-chat")
 DATASET = env("SFT_DATASET", "HuggingFaceTB/smoltalk")
 DATASET_CONFIG = env("SFT_CONFIG", "all")
 MAX_LEN = env("MAX_LEN", 2048)
@@ -85,7 +85,7 @@ def main():
     use_cuda = torch.cuda.is_available()
     device_type = "cuda" if use_cuda else "cpu"
     tok = load_tokenizer(source)
-    model = HeolesForCausalLM.from_pretrained(source).to(device)
+    model = YuYingForCausalLM.from_pretrained(source).to(device)
     model.enable_checkpointing(True)
     model.train()
     opt = torch.optim.AdamW(model.parameters(), lr=LR, betas=(0.9, 0.95), weight_decay=0.0, fused=use_cuda)

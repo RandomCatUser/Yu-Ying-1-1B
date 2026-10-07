@@ -1,11 +1,11 @@
 import argparse
 import torch
 from common import encode_prompt, load_tokenizer
-from modeling_heoles import HeolesForCausalLM
+from modeling_yuying import YuYingForCausalLM
 
 parser = argparse.ArgumentParser()
-parser.add_argument("path", nargs="?", default="heoles1-1b-chat")
-parser.add_argument("--system", default="You are Heoles1:1B, a helpful assistant created by Dihan Ramanayaka.")
+parser.add_argument("path", nargs="?", default="yu-ying-1-1b-chat")
+parser.add_argument("--system", default="You are Yu-Ying 1 : 1B, a helpful assistant created by Dihan Ramanayaka.")
 parser.add_argument("--max_new_tokens", type=int, default=512)
 parser.add_argument("--temperature", type=float, default=0.7)
 parser.add_argument("--top_k", type=int, default=50)
@@ -17,7 +17,7 @@ args = parser.parse_args()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.bfloat16 if device == "cuda" else torch.float32
 tok = load_tokenizer(args.path)
-model = HeolesForCausalLM.from_pretrained(args.path, dtype=dtype).to(device).eval()
+model = YuYingForCausalLM.from_pretrained(args.path, dtype=dtype).to(device).eval()
 stop_ids = [tok.eos_token_id, tok.convert_tokens_to_ids("<|end|>")]
 
 
@@ -39,7 +39,7 @@ class Printer:
 
 
 history = [{"role": "system", "content": args.system}]
-print("Heoles1:1B ready. Commands: /reset  /exit")
+print("Yu-Ying 1 : 1B ready. Commands: /reset  /exit")
 while True:
     try:
         user = input("\nYou: ").strip()
@@ -57,7 +57,7 @@ while True:
     ids = encode_prompt(tok, history)[-(model.config.max_position_embeddings - args.max_new_tokens):]
     x = torch.tensor([ids], device=device)
     printer = Printer()
-    print("Heoles1:1B: ", end="", flush=True)
+    print("Yu-Ying 1 : 1B: ", end="", flush=True)
     model.generate(
         x,
         max_new_tokens=args.max_new_tokens,

@@ -1,6 +1,6 @@
-# Heoles1:1B
+# Yu-Ying 1 : 1B
 
-Heoles1:1B is a 1 billion parameter decoder-only language model written from scratch in PyTorch and compatible with Hugging Face `transformers`.
+Yu-Ying 1 : 1B is a 1 billion parameter decoder-only language model written from scratch in PyTorch and compatible with Hugging Face `transformers`.
 
 Developer: **Dihan Ramanayaka**
 
@@ -26,7 +26,7 @@ Total parameters: about 1.003B.
 
 | File | Purpose |
 |---|---|
-| `modeling_heoles.py` | Config and model |
+| `modeling_yuying.py` | Config and model |
 | `common.py` | Tokenizer building, chat format, conversation encoding |
 | `train.py` | Pretraining (tokenizer plus model) |
 | `sft.py` | Chat fine-tuning |
@@ -62,7 +62,7 @@ Settings can be overridden with environment variables, for example:
 STEPS=50000 MICRO=2 ACCUM=32 LR=3e-4 python train.py
 ```
 
-Checkpoints are saved to `heoles1-1b/`. Running the same command again resumes from the last checkpoint.
+Checkpoints are saved to `yu-ying-1-1b/`. Running the same command again resumes from the last checkpoint.
 
 ## Step 2: Fine-tune for chat
 
@@ -70,12 +70,12 @@ Checkpoints are saved to `heoles1-1b/`. Running the same command again resumes f
 python sft.py
 ```
 
-This trains on `HuggingFaceTB/smoltalk` and computes loss only on assistant replies. The result is saved to `heoles1-1b-chat/`.
+This trains on `HuggingFaceTB/smoltalk` and computes loss only on assistant replies. The result is saved to `yu-ying-1-1b-chat/`.
 
 ## Step 3: Chat
 
 ```bash
-python chat.py heoles1-1b-chat
+python chat.py yu-ying-1-1b-chat
 ```
 
 Commands: `/reset` clears history, `/exit` quits.
@@ -84,12 +84,12 @@ Commands: `/reset` clears history, `/exit` quits.
 
 ```bash
 export HF_TOKEN=your_write_token
-python publish.py --dir heoles1-1b-chat --repo Heoles1-1B
+python publish.py --dir yu-ying-1-1b-chat --repo Yu-Ying-1-1B
 ```
 
 Options: `--username`, `--private`, `--fp32` (default upload is bf16, about 2 GB).
 
-Hugging Face repo names cannot contain a colon, so the repo is `Heoles1-1B`, while the model is still called Heoles1:1B.
+Hugging Face repo names cannot contain a colon or spaces, so the repo is `Yu-Ying-1-1B`, while the model is still called Yu-Ying 1 : 1B.
 
 ## Load from the Hub
 
@@ -97,7 +97,7 @@ Hugging Face repo names cannot contain a colon, so the repo is `Heoles1-1B`, whi
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-repo = "your-username/Heoles1-1B"
+repo = "your-username/Yu-Ying-1-1B"
 tok = AutoTokenizer.from_pretrained(repo)
 model = AutoModelForCausalLM.from_pretrained(repo, trust_remote_code=True, dtype=torch.bfloat16)
 
@@ -125,7 +125,7 @@ The model code was tested on CPU with a tiny configuration: KV-cache outputs mat
 
 ## License
 
-Apache-2.0
+Apache-2.0. See [LICENSE](LICENSE) for the full text.
 
 ## Train inside GitHub (Actions)
 
@@ -150,8 +150,8 @@ Setup:
 
 How it works:
 
-- GitHub jobs are limited to 6 hours on hosted runners, so training runs in chunks. Each run trains for `max_minutes`, saves a checkpoint, and uploads it to a private Hugging Face repo called `<your-username>/heoles1-train-state`.
-- With `auto_continue` on, each run starts the next one, which pulls the checkpoint and resumes where the last run stopped. When pretraining finishes it moves on to fine-tuning, and when fine-tuning finishes it publishes the model to `<your-username>/Heoles1-1B`.
+- GitHub jobs are limited to 6 hours on hosted runners, so training runs in chunks. Each run trains for `max_minutes`, saves a checkpoint, and uploads it to a private Hugging Face repo called `<your-username>/yu-ying-1-train-state`.
+- With `auto_continue` on, each run starts the next one, which pulls the checkpoint and resumes where the last run stopped. When pretraining finishes it moves on to fine-tuning, and when fine-tuning finishes it publishes the model to `<your-username>/Yu-Ying-1-1B`.
 - If a run fails or you cancel it, run the workflow again with the same stage and it resumes from the last saved checkpoint (saved every 500 steps and at the end of each run).
 - `stage` lets you run `pretrain`, `sft`, or `publish` on their own.
 
@@ -160,3 +160,7 @@ Notes:
 - The data stream restarts with a new shuffle seed on each resume, so a resumed run does not replay the exact same documents.
 - Fine-tuning resumes from the saved weights but restarts the optimizer, which is fine for a short run.
 - The workflow was validated for syntax and the same code path was tested on CPU, but it has not run on a real GPU runner.
+
+## Train for free
+
+Free cloud GPU options (Kaggle, Hugging Face ZeroGPU, Google Colab) are documented in [FREE_TRAINING.md](FREE_TRAINING.md).
