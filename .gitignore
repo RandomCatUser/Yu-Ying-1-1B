@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+heoles1-1b/
+heoles1-1b-chat/
+ci-pretrain/
+ci-chat/

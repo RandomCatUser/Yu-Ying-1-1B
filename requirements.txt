@@ -1,6 +1,6 @@
-torch>=2.1
-transformers>=4.40
-datasets>=2.18
+torch>=2.3
+transformers>=4.44
+datasets>=2.19
 tokenizers>=0.19
-huggingface_hub>=0.22
+huggingface_hub>=0.23
 safetensors>=0.4

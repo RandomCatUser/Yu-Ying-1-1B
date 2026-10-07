@@ -1,0 +1,152 @@
+name: train
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage to run
+        type: choice
+        options:
+          - pretrain
+          - sft
+          - publish
+        default: pretrain
+      runner:
+        description: Runner label with a GPU (larger GPU runner name or self-hosted label)
+        type: string
+        default: gpu-runner
+      total_steps:
+        description: Total pretraining steps
+        type: string
+        default: "20000"
+      sft_steps:
+        description: Total fine-tuning steps
+        type: string
+        default: "3000"
+      max_minutes:
+        description: Training minutes per run before saving and stopping
+        type: string
+        default: "300"
+      timeout_minutes:
+        description: Job timeout (hosted runners allow at most 360)
+        type: string
+        default: "355"
+      micro_batch:
+        description: Sequences per GPU per micro step
+        type: string
+        default: "4"
+      grad_accum:
+        description: Gradient accumulation steps
+        type: string
+        default: "16"
+      auto_continue:
+        description: Start the next run automatically (resume, then sft, then publish)
+        type: boolean
+        default: true
+      hf_repo:
+        description: Hugging Face repo name for the final model
+        type: string
+        default: Heoles1-1B
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: heoles-training
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      STEPS: ${{ inputs.total_steps }}
+      SFT_STEPS: ${{ inputs.sft_steps }}
+      MAX_MINUTES: ${{ inputs.max_minutes }}
+      MICRO: ${{ inputs.micro_batch }}
+      ACCUM: ${{ inputs.grad_accum }}
+      SFT_MICRO: ${{ inputs.micro_batch }}
+      SFT_ACCUM: ${{ inputs.grad_accum }}
+      HF_REPO: ${{ inputs.hf_repo }}
+      TOKENIZERS_PARALLELISM: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Check setup
+        run: |
+          nvidia-smi || echo "no GPU visible"
+          test -n "$HF_TOKEN" || { echo "Add a write token as the HF_TOKEN repository secret"; exit 1; }
+
+      - name: Pull saved state
+        if: inputs.stage == 'pretrain'
+        run: python sync.py pull heoles1-1b
+
+      - name: Pretrain
+        if: inputs.stage == 'pretrain'
+        env:
+          OUT: heoles1-1b
+        run: |
+          NGPU=$(python -c "import torch; print(max(1, torch.cuda.device_count()))")
+          if [ "$NGPU" -gt 1 ]; then torchrun --nproc_per_node="$NGPU" train.py; else python train.py; fi
+
+      - name: Push saved state
+        if: always() && inputs.stage == 'pretrain'
+        run: python sync.py push heoles1-1b
+
+      - name: Pull base model and saved fine-tune
+        if: inputs.stage == 'sft'
+        run: |
+          python sync.py pull heoles1-1b
+          python sync.py pull heoles1-1b-chat
+
+      - name: Fine-tune
+        if: inputs.stage == 'sft'
+        env:
+          BASE: heoles1-1b
+          SFT_OUT: heoles1-1b-chat
+        run: python sft.py
+
+      - name: Push fine-tune
+        if: always() && inputs.stage == 'sft'
+        run: python sync.py push heoles1-1b-chat
+
+      - name: Publish to Hugging Face
+        if: inputs.stage == 'publish'
+        run: |
+          python sync.py pull heoles1-1b-chat
+          python publish.py --dir heoles1-1b-chat --repo "$HF_REPO"
+
+      - name: Start next run
+        if: success() && inputs.auto_continue && inputs.stage != 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STAGE: ${{ inputs.stage }}
+          RUNNER_LABEL: ${{ inputs.runner }}
+          TOTAL: ${{ inputs.total_steps }}
+          SFT_TOTAL: ${{ inputs.sft_steps }}
+          MINUTES: ${{ inputs.max_minutes }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          MB: ${{ inputs.micro_batch }}
+          GA: ${{ inputs.grad_accum }}
+          REPO_NAME: ${{ inputs.hf_repo }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$STAGE" = "pretrain" ]; then FOLDER=heoles1-1b; AFTER=sft; else FOLDER=heoles1-1b-chat; AFTER=publish; fi
+          DONE=$(python -c "import json; print(json.load(open('$FOLDER/state.json'))['done'])")
+          if [ "$DONE" = "True" ]; then NEXT=$AFTER; else NEXT=$STAGE; fi
+          echo "next stage: $NEXT"
+          gh workflow run train.yml --ref "$REF_NAME" \
+            -f stage="$NEXT" -f runner="$RUNNER_LABEL" -f total_steps="$TOTAL" -f sft_steps="$SFT_TOTAL" \
+            -f max_minutes="$MINUTES" -f timeout_minutes="$TIMEOUT" -f micro_batch="$MB" -f grad_accum="$GA" \
+            -f auto_continue=true -f hf_repo="$REPO_NAME"

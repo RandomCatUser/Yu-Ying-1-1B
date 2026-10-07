@@ -1,33 +1,38 @@
 # Heoles1:1B
 
-Heoles1:1B is a 1 billion parameter decoder-only language model, written from scratch in PyTorch and compatible with Hugging Face `transformers`.
+Heoles1:1B is a 1 billion parameter decoder-only language model written from scratch in PyTorch and compatible with Hugging Face `transformers`.
 
 Developer: **Dihan Ramanayaka**
 
-## Architecture
+## What's new in v2
 
-| Component | Value |
+| Feature | Details |
 |---|---|
-| Parameters | about 0.99B |
-| Layers | 22 |
-| Hidden size | 2048 |
-| Attention | 16 heads, 4 KV heads (grouped-query attention) |
-| Feed-forward | SwiGLU, intermediate size 5120 |
-| Position encoding | Rotary (RoPE) |
-| Normalization | RMSNorm |
-| Context length | 2048 |
-| Vocabulary | 32000 (byte-level BPE) |
-| Embeddings | Tied input and output |
+| Local and global attention | 5 sliding-window (1024) layers for every 1 global layer, which keeps long-context memory low |
+| Grouped-query attention | 16 query heads, 4 KV heads, head dim 128 |
+| QK-norm | RMSNorm on queries and keys for stable training |
+| Sandwich norms | RMSNorm before and after every attention and MLP block |
+| GeGLU feed-forward | Intermediate size 5632 |
+| Dual RoPE | Base 10k for local layers, 1M for global layers |
+| Context length | 8192 tokens |
+| Vocabulary | 49152 byte-level BPE, with chat special tokens |
+| KV cache | Fast generation, with a trimmed cache on local layers |
+| Training tools | Multi-GPU (DDP), gradient checkpointing, bf16, resume from checkpoint |
+| Chat | Supervised fine-tuning script with assistant-only loss and a streaming chat CLI |
+
+Total parameters: about 1.003B.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `modeling_heoles.py` | Model config and architecture |
-| `train.py` | Tokenizer training and pretraining |
-| `chat.py` | Interactive text generation |
+| `modeling_heoles.py` | Config and model |
+| `common.py` | Tokenizer building, chat format, conversation encoding |
+| `train.py` | Pretraining (tokenizer plus model) |
+| `sft.py` | Chat fine-tuning |
+| `chat.py` | Interactive streaming chat |
 | `publish.py` | Upload to the Hugging Face Hub |
-| `requirements.txt` | Python dependencies |
+| `requirements.txt` | Dependencies |
 
 ## Setup
 
@@ -35,55 +40,123 @@ Developer: **Dihan Ramanayaka**
 pip install -r requirements.txt
 ```
 
-A CUDA GPU with roughly 40 to 80 GB of memory is recommended for training.
+## Step 1: Pretrain
 
-## Train
+Single GPU:
 
 ```bash
 python train.py
 ```
 
-This trains a 32k BPE tokenizer, pretrains the model on FineWeb-Edu, and saves checkpoints to `heoles1-1b/`. Adjust `STEPS`, `MICRO`, `ACCUM`, and `LR` at the top of `train.py` to fit your hardware and budget.
-
-## Chat
+Multiple GPUs:
 
 ```bash
-python chat.py heoles1-1b
+torchrun --nproc_per_node=8 train.py
 ```
 
-## Publish to Hugging Face
+Data is streamed from FineWeb-Edu (70%) and Cosmopedia v2 (30%) via `HuggingFaceTB/smollm-corpus`. Edit `SOURCES` in `train.py` to add code, math, or multilingual datasets.
 
-1. Create a write-access token at https://huggingface.co/settings/tokens
-2. Run:
+Settings can be overridden with environment variables, for example:
 
 ```bash
-export HF_TOKEN=your_token_here
-python publish.py
+STEPS=50000 MICRO=2 ACCUM=32 LR=3e-4 python train.py
 ```
 
-Optionally pass a username or organization: `python publish.py your-username`
+Checkpoints are saved to `heoles1-1b/`. Running the same command again resumes from the last checkpoint.
 
-The repo will be named `Heoles1-1B`, since Hugging Face does not allow a colon in repo names.
+## Step 2: Fine-tune for chat
+
+```bash
+python sft.py
+```
+
+This trains on `HuggingFaceTB/smoltalk` and computes loss only on assistant replies. The result is saved to `heoles1-1b-chat/`.
+
+## Step 3: Chat
+
+```bash
+python chat.py heoles1-1b-chat
+```
+
+Commands: `/reset` clears history, `/exit` quits.
+
+## Step 4: Publish to Hugging Face
+
+```bash
+export HF_TOKEN=your_write_token
+python publish.py --dir heoles1-1b-chat --repo Heoles1-1B
+```
+
+Options: `--username`, `--private`, `--fp32` (default upload is bf16, about 2 GB).
+
+Hugging Face repo names cannot contain a colon, so the repo is `Heoles1-1B`, while the model is still called Heoles1:1B.
 
 ## Load from the Hub
 
 ```python
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-tok = AutoTokenizer.from_pretrained("your-username/Heoles1-1B")
-model = AutoModelForCausalLM.from_pretrained("your-username/Heoles1-1B", trust_remote_code=True)
+repo = "your-username/Heoles1-1B"
+tok = AutoTokenizer.from_pretrained(repo)
+model = AutoModelForCausalLM.from_pretrained(repo, trust_remote_code=True, dtype=torch.bfloat16)
 
-ids = tok("The future of AI is", return_tensors="pt").input_ids
-out = model.generate(ids, max_new_tokens=64, temperature=0.8)
-print(tok.decode(out[0]))
+messages = [{"role": "user", "content": "Explain gravity in two sentences."}]
+text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+ids = tok(text, add_special_tokens=False, return_tensors="pt").input_ids
+
+stop = [tok.eos_token_id, tok.convert_tokens_to_ids("<|end|>")]
+out = model.generate(ids, max_new_tokens=200, temperature=0.7, stop_ids=stop)
+print(tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True))
 ```
 
-## Notes
+## Hardware
 
-- A freshly initialized model produces random output. It needs to be trained on billions of tokens before it is useful.
-- The default `train.py` settings cover about 2.6B tokens (20000 steps x 16 accumulation x 4 sequences x 2048 context), which is a starting point rather than a finished training run.
-- Generation has no KV cache yet, so long outputs are slow.
+- Training: one 80 GB GPU works with gradient checkpointing (on by default). 24 to 40 GB cards need a smaller `MICRO` and `BLOCK`.
+- Inference: about 2 GB in bf16, runs on a laptop CPU slowly or any modern GPU quickly.
+
+## Honest expectations
+
+The architecture borrows ideas from modern open models such as Gemma, but a model's quality comes mostly from training data and compute, not code. Gemma-class models are trained on trillions of tokens. The default settings here train on roughly 2.6B tokens per 20,000 steps, which gives a small, working model. For results closer to the best 1B models, train on 20B to 100B+ tokens with a stronger data mix (code, math, multilingual) and then fine-tune.
+
+## Testing status
+
+The model code was tested on CPU with a tiny configuration: KV-cache outputs match full-forward outputs, gradient checkpointing matches normal gradients, save and reload is exact, tied embeddings work, and the full 1B config builds to 1.003B parameters. The dataset streaming, GPU training loop, and Hub upload were not run in my environment.
 
 ## License
 
 Apache-2.0
+
+## Train inside GitHub (Actions)
+
+The repo includes two workflows in `.github/workflows/`.
+
+### smoke-test (free, automatic)
+
+Runs on every push and pull request on a standard GitHub runner. It checks the model code, then runs the full pipeline (tokenizer, pretraining with a stop and resume, fine-tuning, chat) on a tiny model with synthetic data. It does not train a real model.
+
+### train (manual, needs a GPU runner)
+
+GitHub's free runners have no GPU, so a real 1B training run needs one of these:
+
+1. A **larger GitHub-hosted GPU runner** (paid; available on GitHub Team and Enterprise Cloud). Create it in Settings > Actions > Runners > New runner > New GitHub-hosted runner, choose a GPU machine, and give it a name such as `gpu-runner`.
+2. A **self-hosted runner** on your own GPU machine or cloud instance, with a label such as `gpu-runner`. For a public repo, be careful about who can trigger workflows on self-hosted machines.
+
+Setup:
+
+1. Push this project to a GitHub repo.
+2. Create a Hugging Face token with write access and add it as a repository secret named `HF_TOKEN` (Settings > Secrets and variables > Actions).
+3. Open the Actions tab, choose **train**, click **Run workflow**, and set the `runner` input to your runner's name or label.
+
+How it works:
+
+- GitHub jobs are limited to 6 hours on hosted runners, so training runs in chunks. Each run trains for `max_minutes`, saves a checkpoint, and uploads it to a private Hugging Face repo called `<your-username>/heoles1-train-state`.
+- With `auto_continue` on, each run starts the next one, which pulls the checkpoint and resumes where the last run stopped. When pretraining finishes it moves on to fine-tuning, and when fine-tuning finishes it publishes the model to `<your-username>/Heoles1-1B`.
+- If a run fails or you cancel it, run the workflow again with the same stage and it resumes from the last saved checkpoint (saved every 500 steps and at the end of each run).
+- `stage` lets you run `pretrain`, `sft`, or `publish` on their own.
+
+Notes:
+
+- The data stream restarts with a new shuffle seed on each resume, so a resumed run does not replay the exact same documents.
+- Fine-tuning resumes from the saved weights but restarts the optimizer, which is fine for a short run.
+- The workflow was validated for syntax and the same code path was tested on CPU, but it has not run on a real GPU runner.

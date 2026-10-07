@@ -1,0 +1,45 @@
+name: smoke-test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers datasets tokenizers huggingface_hub safetensors
+      - name: Unit tests
+        run: python tests/smoke_test.py
+      - name: End to end on synthetic data
+        env:
+          SYNTHETIC: "1"
+          PRESET: tiny
+          OUT: ci-pretrain
+          SFT_OUT: ci-chat
+          BASE: ci-pretrain
+          VOCAB: "512"
+          BLOCK: "64"
+          MICRO: "2"
+          ACCUM: "2"
+          STEPS: "6"
+          WARMUP: "1"
+          SAVE_EVERY: "2"
+          SFT_STEPS: "4"
+          SFT_MICRO: "2"
+          SFT_ACCUM: "1"
+          SFT_WARMUP: "1"
+          MAX_LEN: "128"
+        run: |
+          RUN_STEPS=3 python train.py
+          RUN_STEPS=3 python train.py
+          python sft.py
+          printf "hello there\n/exit\n" | python chat.py ci-chat --max_new_tokens 8

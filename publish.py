@@ -1,15 +1,14 @@
+import argparse
 import os
-import sys
+import torch
 from huggingface_hub import HfApi, login
-from transformers import PreTrainedTokenizerFast
 from modeling_heoles import HeolesConfig, HeolesForCausalLM
+from common import load_tokenizer
 
-MODEL_DIR = "heoles1-1b"
-REPO_NAME = "Heoles1-1B"
 DISPLAY_NAME = "Heoles1:1B"
 DEVELOPER = "Dihan Ramanayaka"
 
-CARD = f"""---
+CARD = """---
 license: apache-2.0
 library_name: transformers
 pipeline_tag: text-generation
@@ -19,73 +18,84 @@ tags:
 - heoles
 - causal-lm
 - custom_code
+- chat
 ---
 
-# {DISPLAY_NAME}
+# Heoles1:1B
 
-{DISPLAY_NAME} is a 1 billion parameter decoder-only language model developed by **{DEVELOPER}**.
+Heoles1:1B is a 1 billion parameter decoder-only language model developed by **Dihan Ramanayaka**.
 
 ## Architecture
 
 - Parameters: about 1.0B
-- Layers: 22
-- Hidden size: 2048
-- Attention: 16 heads with 4 key/value heads (grouped-query attention)
-- Feed-forward: SwiGLU, intermediate size 5120
-- Position encoding: rotary (RoPE)
-- Normalization: RMSNorm
-- Context length: 2048
-- Vocabulary: 32000 (byte-level BPE)
+- Layers: 20, with a 5:1 mix of sliding-window (1024) and global attention layers
+- Hidden size: 2048, 16 query heads, 4 key/value heads (grouped-query attention), head dim 128
+- Feed-forward: GeGLU, intermediate size 5632
+- Norms: RMSNorm with pre and post normalization around every sublayer, plus QK-norm
+- Positions: rotary embeddings with separate base frequencies for local (10k) and global (1M) layers
+- Context length: 8192
+- Vocabulary: 49152 byte-level BPE
+- Tied input and output embeddings, KV cache for fast generation
 
 ## Usage
 
 ```python
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-tok = AutoTokenizer.from_pretrained("YOUR_USERNAME/{REPO_NAME}")
-model = AutoModelForCausalLM.from_pretrained("YOUR_USERNAME/{REPO_NAME}", trust_remote_code=True)
+repo = "{repo_id}"
+tok = AutoTokenizer.from_pretrained(repo)
+model = AutoModelForCausalLM.from_pretrained(repo, trust_remote_code=True, dtype=torch.bfloat16)
 
-ids = tok("The future of AI is", return_tensors="pt").input_ids
-out = model.generate(ids, max_new_tokens=64, temperature=0.8)
-print(tok.decode(out[0]))
+messages = [{{"role": "user", "content": "Explain gravity in two sentences."}}]
+text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+ids = tok(text, add_special_tokens=False, return_tensors="pt").input_ids
+
+stop = [tok.eos_token_id, tok.convert_tokens_to_ids("<|end|>")]
+out = model.generate(ids, max_new_tokens=200, temperature=0.7, stop_ids=stop)
+print(tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True))
 ```
 
 ## Developer
 
-{DEVELOPER}
+{developer}
 """
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dir", default="heoles1-1b-chat")
+    parser.add_argument("--repo", default="Heoles1-1B")
+    parser.add_argument("--username", default=None)
+    parser.add_argument("--fp32", action="store_true")
+    parser.add_argument("--private", action="store_true")
+    args = parser.parse_args()
+
     token = os.environ.get("HF_TOKEN")
-    if token:
-        login(token=token)
-    else:
-        login()
+    login(token=token) if token else login()
 
     api = HfApi()
-    username = sys.argv[1] if len(sys.argv) > 1 else api.whoami()["name"]
-    repo_id = f"{username}/{REPO_NAME}"
-
-    api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
+    username = args.username or api.whoami()["name"]
+    repo_id = f"{username}/{args.repo}"
+    api.create_repo(repo_id=repo_id, repo_type="model", private=args.private, exist_ok=True)
 
     HeolesConfig.register_for_auto_class()
     HeolesForCausalLM.register_for_auto_class("AutoModelForCausalLM")
 
-    model = HeolesForCausalLM.from_pretrained(MODEL_DIR)
-    tok = PreTrainedTokenizerFast.from_pretrained(MODEL_DIR)
+    model = HeolesForCausalLM.from_pretrained(args.dir)
+    if not args.fp32:
+        model = model.to(torch.bfloat16)
+    tok = load_tokenizer(args.dir)
 
     model.push_to_hub(repo_id, safe_serialization=True)
     tok.push_to_hub(repo_id)
 
-    card = CARD.replace("YOUR_USERNAME", username)
     api.upload_file(
-        path_or_fileobj=card.encode("utf-8"),
+        path_or_fileobj=CARD.format(repo_id=repo_id, developer=DEVELOPER).encode("utf-8"),
         path_in_repo="README.md",
         repo_id=repo_id,
         repo_type="model",
     )
-
     print(f"Published: https://huggingface.co/{repo_id}")
 
 
